@@ -1,7 +1,8 @@
 # magora-portal repo harness — design (Spec 1 of 2)
 
 - **Date:** 2026-10-15
-- **Status:** draft rev 6 (after Codex rounds 1–4, Gemini round 1, David's decisions D-7/D-8)
+- **Status:** approved rev 6 (David, 2026-10-15); rev 7 records pre-flight results (§3.1) and the
+  three amendments they force (§5.1 `deno` row, §5.5 grandfather-list path, §9 finding count)
 - **Plan tasks:** H1, H2 of the Magora Consolidated Action Plan (2026-10-09, §08 repo audit)
 - **Gate:** G2, 2026-10-30 — harness, PR flow and isolated preview ready before app or site coding
 - **Companion:** Spec 2 (staging, plan task E1) is a separate document and is not designed here
@@ -107,10 +108,23 @@ trust boundary in §2.1. Until Spec 2 moves Preview to staging:
 | Vercel project `magora-portal` (team `noah-waldron-s-projects`) is linked to `magora-project/magora-portal`, production branch `main`, with **Git Fork Protection on** (`gitForkProtection: true`): a fork PR's preview is not built until a team member authorizes it | `vercel api /v9/projects/magora-portal`, fields projected, no values read |
 | Preview-scoped env vars (names only): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (production project), `ANTHROPIC_API_KEY`, `EBIRD_API_KEY`, `PROVISION_SECRET`, `XENO_CANTO_API_KEY`. `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` are production-only | same call |
 
-**Not yet measured** (pre-flight, §6 step 1): both maintainers' org roles and repo permissions;
-installed GitHub Apps (`gh` token lacks `admin:org`); the org/repo fork-workflow approval policy;
-whether `vite build` succeeds with no env vars; whether `deno check` succeeds on both functions;
-how the Supabase CLI treats a `supabase/migrations/rollbacks/` subdirectory.
+### 3.1 Pre-flight results (§6 step 1, measured 2026-10-15 on macOS, Node 22.23.2)
+
+| Item | Result | Evidence |
+|---|---|---|
+| `vite build` with no env vars | **Passes** (rc 0); `prebuild` left `src/generated/build-doc.js` byte-identical | `env -i PATH HOME npm run build`, then `cmp` against a copy |
+| `deno check` on both functions | **Passes** (rc 0 each) | `deno check supabase/functions/<f>/index.ts`, deno 2.9.5 |
+| `deno lint` on both functions | **Fails**: 2 × `no-import-prefix` (the unpinned `https://esm.sh/…` import). With `--rules-exclude=no-import-prefix`: rc 0 | `deno lint supabase/functions/` |
+| Supabase CLI and a `rollbacks/` subdirectory | Ignored silently: both CLI implementations skip directories when listing migrations | **Source read, not executed** (Docker was down): `apps/cli-go/pkg/migration/list.go` and `apps/cli/src/command-internal/migration-list.ts` at tag `v2.118.0` (the installed version) |
+| Supabase CLI and a non-migration file in `supabase/migrations/` | Skipped, but prints `Skipping migration <name>... (file name must match pattern "<timestamp>_name.sql")` to stderr on every command that lists migrations | same source read |
+| Fork-workflow approval policy | Already `first_time_contributors`; no write needed | `GET repos/…/actions/permissions/fork-pr-contributor-approval` |
+| Default workflow token | `default_workflow_permissions: read`, cannot approve PRs | `GET repos/…/actions/permissions/workflow` |
+| Branch protection on `main` | None | `GET …/branches/main/protection` → 404 "Branch not protected" |
+| David's access | `bluemtnswalking1` is repo admin | `GET repos/…/collaborators` |
+| Noah's access and both org roles | **Unresolved.** The collaborators listing shows only `bluemtnswalking1`; org membership reads need `admin:org`, which this token lacks. Noah confirms his own access, or an org owner reads it, before PR A merges | same call; `orgs/…/memberships` → 403 scope |
+| Installed GitHub Apps | **Unresolved** (needs `admin:org`); the org owner checks in §6 step 2 | — |
+| Vercel Node version | `24.x`, so `.nvmrc` is `24` | `vercel api /v9/projects/magora-portal`, `nodeVersion` projected |
+| Lint after the D-5 config change | 13 findings, 0 `no-undef`, 0 `no-redeclare`, 0 fatal: 7 `react-hooks/static-components`, 3 `react-hooks/set-state-in-effect`, 2 `react-refresh/only-export-components` (all in `src/`), 1 `no-unused-vars` (in `api/seed-guilds.js`) | applied to a scratch worktree of `1fae773`, `npx eslint . -f json` |
 
 ## 4. Decisions taken in the brainstorm
 
@@ -120,7 +134,7 @@ how the Supabase CLI treats a `supabase/migrations/rollbacks/` subdirectory.
 | D-2 | **Trunk flow.** Feature branches PR straight to `main`; no long-lived `dev`, no promotion step, no `main → dev` sync. Each PR's Vercel preview is where it is checked. Promotion is selective because each PR merges independently. | method-project's whole-`dev` promotion; a disposable integration `dev`; cherry-pick release PRs. A shared integration branch can be added later if needed. |
 | D-3 | **Squash merge only**, delete branch on merge. | Merge-commit only (method-project's promotion rule). |
 | D-4 | **Reviewer matrix recycled in two layers** (§5.3): Layer 1 on the PR, Layer 2 as `AGENTS.md` guidance for agents before pushing. | Bots as required checks; Layer 2 as hooks (cannot reach Noah or forks). |
-| D-5 | **Lint: fix the config, then ratchet.** Correct globals for Node files, bring `.mjs` into lint, record per-rule counts as a baseline; CI fails if any rule's count rises. The 13 remaining `src/` findings are fixed in their own PRs. | Fix all findings in the harness PR; inline `eslint-disable` with TODOs. |
+| D-5 | **Lint: fix the config, then ratchet.** Correct globals for Node files, bring `.mjs` into lint, record per-rule counts as a baseline; CI fails if any rule's count rises. The 13 remaining findings (12 in `src/`, 1 in `api/seed-guilds.js`, §3.1) are fixed in their own PRs. | Fix all findings in the harness PR; inline `eslint-disable` with TODOs. |
 | D-6 | LICENSE does not block G2; it blocks inviting fork contributors. | — |
 | D-7 | **No required approval.** Each maintainer merges their own PR once required checks are green; branch protection still requires a PR (no direct pushes) and green checks. Fork and Dependabot PRs are reviewed by whichever maintainer merges them. | The other maintainer's required approval (the handoff's proposal), which would stop either maintainer merging alone. |
 | D-8 | **Post-arm proof is one example per mechanism**: one red check blocks a merge, a direct push is refused, the required-check list is read back complete. Every check's ability to go red is already proven pre-arm. | A post-arm block test for each of the 7 checks (Codex round 2); no post-arm red-check test at all (Gemini). |
@@ -141,7 +155,7 @@ how the Supabase CLI treats a `supabase/migrations/rollbacks/` subdirectory.
 | `lint (ubuntu-latest)`, `lint (windows-latest)` | `npm run lint:ratchet` | `scripts/ci/lint-ratchet.mjs` runs ESLint with JSON output and compares per-rule counts to `.github/lint-baseline.json`. Fails on any increase. A decrease prints a reminder to lower the baseline in the same PR; it does not fail. **Fails closed** on anything that is not a counted rule violation: a fatal diagnostic or `ruleId: null` (parse errors), ESLint failing to start or exiting for a config error, output that is not valid JSON, or a missing or malformed baseline. ESLint's ordinary "lint errors found" exit is expected and tolerated; the ratchet tells it apart from an execution failure. Its own self-test covers each fail-closed case. |
 | `test (ubuntu-latest)`, `test (windows-latest)` | `npm test` | `scripts/run-tests.mjs` finds every `*.test.mjs` outside `node_modules`, runs each with `node` as a child process, and fails if any exits non-zero, if any child fails to launch, or if it found zero files. The runner has its own `scripts/run-tests.test.mjs` covering those three failure modes, so it tests itself. |
 | `build` | `npm run build` | Ubuntu only. Must pass with no env vars. `prebuild` fetches the build doc over the network and falls back to the committed copy, so a fetch failure does not fail CI; recorded as existing behaviour. |
-| `deno` | `deno check` and `deno lint` over `supabase/functions/` | Deno version pinned. If pre-flight shows `deno check` fails on current code, the job starts as `deno lint` only and the spec records it. |
+| `deno` | `npm run check:deno`: `deno check` on each function's `index.ts`, then `deno lint --rules-exclude=no-import-prefix supabase/functions/` | Deno pinned to 2.9.5. Rev 7: `deno check` passes on current code, so it runs. `deno lint` fails only on `no-import-prefix`, which flags the unpinned `esm.sh` import that §9 leaves out of scope, so that one rule is excluded on the command line; a `deno.json` was not added, so the harness adds no file that Deno's upward config discovery could hand to the function deploy (not tested; avoided). The rule rejects any inline `https:`/`npm:`/`jsr:` specifier, pinned or not (Codex rev-7 round, per Deno's rule docs), so lifting the exclusion needs the functions to declare dependencies in a config and import bare specifiers, or an explicit lint-policy decision; pinning the version alone does not lift it. The exclusion affects lint only, not `deno check`. |
 | `migrations` | `npm run check:migrations` | §5.5. |
 
 Exact context names are confirmed from the proof PR (V0), not assumed from this table. Matrix
@@ -265,12 +279,14 @@ issue-closer.
 
 - `scripts/ci/check-migrations.mjs` fails if a migration file added in the PR has no paired
   rollback file. It discovers only top-level forward migrations (`supabase/migrations/*.sql`) and
-  never treats `.grandfathered` or anything under `rollbacks/` as a migration. The 32 existing migrations are grandfathered by name in
-  `supabase/migrations/.grandfathered` (a control file, §2.1).
+  never treats anything under `rollbacks/` as a migration. The 32 existing migrations are
+  grandfathered by name in `scripts/ci/migrations-grandfathered.txt` (a control file, §2.1).
+  Rev 7: the list moved out of `supabase/migrations/` because the CLI warns about every
+  non-migration file there (§3.1).
 - Pairing mirrors method-project: `supabase/migrations/<stem>.sql` pairs with
-  `supabase/migrations/rollbacks/<stem>.rollback.sql`. Pre-flight confirms, with a named Supabase
-  CLI version, that the CLI ignores the `rollbacks/` subdirectory; if it does not, rollbacks move
-  to `supabase/rollbacks/` and this section is amended before the plan.
+  `supabase/migrations/rollbacks/<stem>.rollback.sql`. Pre-flight (§3.1) read the v2.118.0 CLI
+  source: both implementations skip subdirectories, so `rollbacks/` stays. That evidence is a
+  source read; the plan executes it once with Docker before PR A merges.
 - `AGENTS.md` states: expand/contract for anything a running deploy reads; a migration is never
   applied until its PR is green at its final head. **Where** migrations are applied is Spec 2.
 
@@ -308,8 +324,9 @@ David's explicit approval.**
 1. **Pre-flight (read-only).** Measure both maintainers' org roles and repo permissions; list
    installed GitHub Apps; read the fork-workflow approval policy; run `vite build` with no env
    vars; run `deno check` on both functions; confirm Supabase CLI behaviour on the full layout
-   (`rollbacks/` subdirectory and the `.grandfathered` file) in a scratch project, recording the
-   CLI version; confirm both maintainers have write access.
+   (`rollbacks/` subdirectory) in a scratch project, recording the CLI version; confirm both
+   maintainers have write access. **Done 2026-10-15 except** the two unresolved rows in §3.1 and
+   the executed (not source-read) CLI check, which the plan runs before PR A merges.
 2. **Human-only steps (org owner).** Install CodeRabbit and the Codex App on `magora-project`,
    scoped to `magora-portal`. If §8.3 is decided, create the Magora-owned Gemini key and store it
    as an Actions secret; otherwise Gemini is deferred (§5.3).
@@ -360,7 +377,7 @@ David's explicit approval.**
    | Syntax error in a linted file (ratchet fail-closed) | both `lint` contexts and `build` |
    | Failing assertion in one harness | `test (ubuntu-latest)`, `test (windows-latest)` |
    | Broken import in `src/` that only `vite build` resolves | `build` |
-   | Deno defect matching the chosen mode (type error if `deno check` runs; lint violation if lint-only) | `deno` |
+   | Deno type error in a function (`deno check` runs, §5.1 rev 7) | `deno` |
    | New migration without rollback | `migrations` |
    | Labels: zero, then two, then remove the only one (API actions, not commits) | `label-gate` |
 7. **D1 — arm protection** with only the contexts proven in step 6, bound to GitHub Actions.
@@ -418,8 +435,9 @@ David's explicit approval.**
 
 Everything in Spec 2: the baseline migration for the five production-only tables, the staging
 Supabase project and Fly worker, Vercel Preview env vars, repointing the Vite proxy, the CI
-isolation check, RLS tests. Also fixing the 13 remaining `src/` lint findings (10 React-hooks,
-2 react-refresh, 1 unused variable) in separate PRs, and pinning the Deno `esm.sh` import.
+isolation check, RLS tests. Also fixing the 13 remaining lint findings (12 in `src/`: 10
+React-hooks, 2 react-refresh; 1 unused variable in `api/seed-guilds.js`) in separate PRs, and
+pinning the Deno `esm.sh` import and lifting the `no-import-prefix` exclusion (which needs more than pinning, §5.1).
 
 ## 10. Review log
 
@@ -430,4 +448,6 @@ isolation check, RLS tests. Also fixing the 13 remaining `src/` lint findings (1
 | 3 | Gemini (`gemini-3.1-pro-preview`, `gemini_review.py`, rc 0, `finishReason=STOP`) on rev 3, fitness/executability/human-factors prompt | BLOCK, 6 findings (1 P0, 3 P1, 2 P2) | P0 "fork PRs auto-deploy production-connected previews": premise refuted by measurement (Git Fork Protection is on, so fork previews need authorization), but the conclusion partly holds — an authorized fork preview gets Preview secrets including `PROVISION_SECRET` — so §2.2 added (no fork-preview authorization until Spec 2; read-back). Two-spec split kept, pending David. P1 proof-matrix contradiction: fixed. P1 Gemini key undecided: Gemini deferred if §8.3 is open. P1 security-check criteria: Semgrep/OSV advisory for G2. P2 bypass by toggling: replaced with a named bypass allowance. P2 "cut V2b": **contradicts Codex round 2** (which required per-check post-arm proof); surfaced to David, not decided. |
 | 4 | Codex CLI on rev 4 (diff + full spec; D-7/D-8 consistency, Gemini fixes) | REWORK, 5 findings (all P2) plus an admin-enforcement note | All accepted: conversation resolution described as enforced-for-review-threads only; Gemini proof steps conditional on deferral, with a secrets grep as fork evidence; V2a/V2b pass conditions made attributable; required checks defined as an explicit allowlist excluding advisory workflows; `enforce_admins` made an explicit setting with readback; Vercel team-member exception documented and the fork proof uses a non-team account. |
 | 5 | Codex CLI on rev 5 (its rev-4 findings + full spec) | REWORK, 2 findings (both P2); all 5 rev-4 findings and the admin note closed or partially closed | Both accepted: no-secret evidence is now platform guarantee + by-hand review of every `secrets` hit and reusable-workflow calls + skipped Gemini job; thread resolution correctly attributed to "PR author or write access", and its "forces a look" claim removed. |
+| 6 | Codex CLI (`codex exec -s read-only`, 42,121 tokens) on the rev 6→7 diff + full spec; reproduced the lint counts and both `deno check` passes; could not execute the CLI layout check (sandbox EPERM on `~/.supabase/telemetry.json`) | REWORK, 2 findings (1 P2, 1 P3) | Both accepted: removal condition for the `no-import-prefix` exclusion corrected (pinning alone does not lift it); D-5's finding count corrected. Grandfather-list move: no new hole. |
+| 7 | Codex CLI (`-s read-only`, 28,136 tokens), fix-verification on round 6 | PASS; both findings closed, no new inconsistency | — |
 | — | David, 2026-10-15 | Decisions | Post-arm proof: middle option (D-8). No required approval; each maintainer merges their own PRs (D-7) — supersedes the handoff's other-maintainer approval; CODEOWNERS and the bypass decision dropped as a result. Fork-preview rule (§2.2) kept. |
